@@ -60,7 +60,7 @@ int main (int argc, char const *argv[]) {
                 Client_Info client_info_1;
                 client_info_1.pid = pid;
                 strcpy(client_info_1.name, token);
-                strcpy(client_info_1.type, strdup("new"));
+                strcpy(client_info_1.type, "new");
                 gettimeofday(&client_info_1.time_stamp, NULL);
 
                 write(fd, &client_info_1, sizeof(Client_Info));
@@ -68,7 +68,7 @@ int main (int argc, char const *argv[]) {
                 Client_Info client_info_2;
                 client_info_2.pid = pid;
                 strcpy(client_info_2.name, token);
-                strcpy(client_info_2.type, strdup("update"));
+                strcpy(client_info_2.type, "update");
 
                 printf("Running PID %d\n", pid);
                 my_system(argv[3]);
@@ -79,13 +79,12 @@ int main (int argc, char const *argv[]) {
                 
                 write(fd, &client_info_2, sizeof(Client_Info));
 
-                // Client_Info client_info_3;
-                // client_info_3.pid = pid;
-                // strcpy(client_info_3.name, token);
-                // strcpy(client_info_3.type, strdup("print"));
-                // gettimeofday(&client_info_3.time_stamp, NULL);
+                Client_Info client_info_3;
+                client_info_3.pid = pid;
+                strcpy(client_info_3.name, token);
+                strcpy(client_info_3.type, "print");
 
-                // write(fd, &client_info_3, sizeof(Client_Info));
+                write(fd, &client_info_3, sizeof(Client_Info));
             }
 
             close(fd);

@@ -16,7 +16,7 @@ int create_new_pipe (Client_Info client_info, GHashTable *processes_ht) {
     if (!success) return -1;
 
     char pipe_name[20];
-    snprintf(pipe_name, 20, "%d", client_info.pid);
+    snprintf(pipe_name, 30, "../tmp/%d", client_info.pid);
     if (mkfifo(pipe_name, S_IRUSR | S_IWUSR) < 0) {
         perror("mkfifo");
         return -1;
@@ -54,12 +54,6 @@ void send_current_status (Client_Info client_info, GHashTable *processes_ht) {
     
 }
 
-void print_key_value (gpointer key, gpointer value, gpointer user_data) {
-    int pid = GPOINTER_TO_INT(key);
-    Client_Info *client_info = (Client_Info *) value;
-    printf("PID: %d, Name: %s\n", pid, client_info->name);
-}
-
 void printf_archived_data (Old_Client_Info old_processes[], int curr) {
     for (int i = 0; i < curr; i++)
         printf("PID: %d; Name: %s\n", old_processes[i].pid, old_processes[i].name);
@@ -72,7 +66,7 @@ int main (void) {
     GHashTable *processes_ht;
     processes_ht = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
 
-    int curr = 0, i = 0;
+    int curr = 0;
     Old_Client_Info old_processes[MAX_MEM];
 
     printf("Data structures created.\n");
@@ -82,7 +76,7 @@ int main (void) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Server FIFO pipe created.\n");
+    printf("Server FIFO pipe created.\n\n");
 
     while (1) {
 
@@ -100,20 +94,25 @@ int main (void) {
             exit(EXIT_FAILURE);
         }
 
-        Client_Info *found_value = g_hash_table_lookup(processes_ht, &client_info.pid);
+        Client_Info *found_value = g_hash_table_lookup(processes_ht, GINT_TO_POINTER(client_info.pid));
+
         if (!strcmp(client_info.type, "new") && found_value == NULL) {
-            printf("Creating new pipe (%d).\n\n", client_info.pid);
+            printf("\tCreating new pipe (%d).\n", client_info.pid);
             create_new_pipe(client_info, processes_ht);
+            printf("\n");
         } else if (!strcmp(client_info.type, "status") && found_value != NULL) {
             printf("\tSending status to PID %d.\n", client_info.pid);
             send_current_status(client_info, processes_ht);
+            printf("\n");
         } else if (!strcmp(client_info.type, "update") && found_value != NULL) {
             printf("\tUpdating data.\n");
             update_process(client_info, found_value, processes_ht, old_processes, &curr);
+            printf("\n");
         } else if (!strcmp(client_info.type, "print")) {
             printf("Printing:\n");
             printf_archived_data(old_processes, curr);
         }
+        printf("\n");
 
         close(fd);
     }
