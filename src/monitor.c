@@ -66,7 +66,7 @@ int main (void) {
     GHashTable *processes_ht;
     processes_ht = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
 
-    int curr = 0;
+    int curr = 0, i = 0;
     Old_Client_Info old_processes[MAX_MEM];
 
     printf("Data structures created.\n");
@@ -79,6 +79,8 @@ int main (void) {
     printf("Server FIFO pipe created.\n\n");
 
     while (1) {
+
+        printf("\tReading ... (%d)\n", i); i++;
 
         int fd = open(SERVER_FIFO_PATH, O_RDONLY);
         if (fd < 0) {

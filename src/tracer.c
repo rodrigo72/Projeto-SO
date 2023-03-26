@@ -43,14 +43,16 @@ long timeval_diff(struct timeval *start, struct timeval *end) {
 
 int main (int argc, char const *argv[]) {
 
+    int fd = open(SERVER_FIFO_PATH, O_WRONLY);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to server.\n\n");
+
     if (argc >= 4) {
         if (!strcmp(argv[1], "execute") && !strcmp(argv[2], "-u")) {
-
-            int fd = open(SERVER_FIFO_PATH, O_WRONLY);
-            if (fd < 0) {
-                perror("open");
-                exit(EXIT_FAILURE);
-            }
 
             int pid = getpid();
             char *command = strdup(argv[3]);
@@ -78,19 +80,21 @@ int main (int argc, char const *argv[]) {
                     timeval_diff(&client_info_1.time_stamp, &client_info_2.time_stamp));
                 
                 write(fd, &client_info_2, sizeof(Client_Info));
-
-                Client_Info client_info_3;
-                client_info_3.pid = pid;
-                strcpy(client_info_3.name, token);
-                strcpy(client_info_3.type, "print");
-                gettimeofday(&client_info_3.time_stamp, NULL);
-
-                write(fd, &client_info_3, sizeof(Client_Info));
             }
 
             close(fd);
             free(command);
-        }
+        } 
+    } else if (argc >= 2 && !strcmp(argv[1], "print")) {
+        
+        Client_Info client_info;
+        client_info.pid = -1;
+        strcpy(client_info.name, "");
+        strcpy(client_info.type, "print");
+        gettimeofday(&client_info.time_stamp, NULL);
+
+        write(fd, &client_info, sizeof(Client_Info));
+        close(fd);
     }
 
     return 0;
