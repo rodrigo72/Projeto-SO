@@ -64,7 +64,7 @@ int main (int argc, char const *argv[]) {
             char pipe_name[30];
             snprintf(pipe_name, 30, "../tmp/%d", pid);
 
-            // cria um named pipe para comunicação "impedida" com o servidor
+            // cria um named pipe para comunicação desimpedida com o servidor
             if (mkfifo(pipe_name, 0664) < 0) {
                 perror("mkfifo");
                 exit(EXIT_FAILURE);
