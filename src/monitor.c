@@ -111,8 +111,8 @@ int main (void) {
         } else if (!strcmp(client_info.type, "print")) {
             printf("Printing:\n");
             printf_archived_data(old_processes, curr);
+            printf("\n");
         }
-        printf("\n");
 
         close(fd);
     }

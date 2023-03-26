@@ -83,6 +83,7 @@ int main (int argc, char const *argv[]) {
                 client_info_3.pid = pid;
                 strcpy(client_info_3.name, token);
                 strcpy(client_info_3.type, "print");
+                gettimeofday(&client_info_3.time_stamp, NULL);
 
                 write(fd, &client_info_3, sizeof(Client_Info));
             }
