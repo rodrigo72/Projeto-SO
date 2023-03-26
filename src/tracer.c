@@ -122,7 +122,66 @@ int main (int argc, char const *argv[]) {
             printf("FIFO removed.\n");
             free(command);
         } 
-    } 
+    } else if (argc >= 2) {
+        if (!strcmp(argv[1], "status")) {
+
+            int pid = getpid();
+            char pipe_name[30];
+            snprintf(pipe_name, 30, "../tmp/%d", pid);
+
+            if (mkfifo(pipe_name, 0664) < 0) {
+                perror("mkfifo");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("FIFO pipe created.\n");
+
+            Request request;
+            request.pid = pid;
+            strcpy(request.type, "status");
+            strcpy(request.name, pipe_name);
+
+            write(fd_server, &request, sizeof(Request)); // request for new pipe
+            close(fd_server);
+
+            printf("Request sent.\n");
+
+            int fd_client = open(pipe_name, O_RDONLY);
+            if (fd_client < 0) {
+                perror("open");
+                exit(EXIT_FAILURE);
+            }
+
+            int flag = 1;
+            while (flag) {
+
+                Server_Message server_msg;
+                int bytes = read(fd_client, &server_msg, sizeof(Server_Message));
+                if (bytes == -1) {
+                    perror("read");
+                    exit(EXIT_FAILURE);
+                }
+
+                if (server_msg.pid != -1) {
+                    printf("%d %s %ld ms\n", server_msg.pid, server_msg.name, server_msg.time);
+                } else {
+                    printf("Exiting.\n");
+                    flag = 0;
+                }
+
+            }
+
+            close(fd_client);
+
+            int status = unlink(pipe_name);
+            if (status != 0) {
+                perror("unlink");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("FIFO removed.\n");
+        }
+    }
 
     return 0;
 }

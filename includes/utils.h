@@ -18,15 +18,22 @@ typedef struct client_info {
     struct timeval time_stamp;
 } Client_Info;
 
-typedef struct old_client_info {
+typedef struct process_info {
+    int active;
     int pid;
     char name[20];
     struct timeval time_stamp_start;
     struct timeval time_stamp_end;
-} Old_Client_Info;
+} Process_Info;
 
 typedef struct request {
     int pid;
     char type[20];
     char name[30];
 } Request;
+
+typedef struct server_message {
+    int pid;
+    char name[20];
+    long time;
+} Server_Message;

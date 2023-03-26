@@ -8,8 +8,8 @@ TMPDIR = tmp
 
 ARGS = execute -u "ls -l"
 
-CFLAGS = -Wall -g -Iincludes $(shell pkg-config --cflags glib-2.0)
-LIBS = -Iincludes $(shell pkg-config --libs glib-2.0) -I./includes 
+CFLAGS = -Wall -g -Iincludes
+LIBS = -lm
 
 .PHONY: all clean run-tracer run-monitor
 
@@ -32,8 +32,16 @@ $(OBJDIR)/tracer.o: $(SRCDIR)/tracer.c
 
 clean:
 	rm -rf $(OBJDIR)/* $(TMPDIR)/* $(BINDIR)/{monitor,tracer}
+	rm -f PIDS/*
+	rm -f logs/*
 	clear
 	@echo Cleanup complete
+
+rebuild:
+	rm -rf $(OBJDIR)/* $(TMPDIR)/* $(BINDIR)/{monitor,tracer}
+	$(MAKE) all
+	clear
+	@echo Rebuild complete
 
 # run-monitor: $(BINDIR)/monitor
 # 	./$<

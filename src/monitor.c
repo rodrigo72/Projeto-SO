@@ -1,80 +1,137 @@
 #include "utils.h"
-#include <glib.h>
 #include <signal.h>
+#include <time.h>
 
 #define MAX_MEM 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
+#define ERROR_LOGS_PATH "../logs/errLogs"
+#define REQUEST_LOGS_PATH "../logs/reqLogs"
 
-int create_new_entry (Client_Info client_info, GHashTable *processes_ht) {
-    Client_Info *new_client_info = malloc(sizeof(Client_Info *));
-    new_client_info->pid = client_info.pid;
-    strcpy(new_client_info->name, client_info.name);
-    new_client_info->time_stamp.tv_sec  = client_info.time_stamp.tv_sec;
-    new_client_info->time_stamp.tv_usec = client_info.time_stamp.tv_usec;
+void error_logger (const char str[], int pid) {
+    int fd = open(ERROR_LOGS_PATH, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        perror("[ERROR_LOGGER] open");
+    }
 
-    int success = g_hash_table_insert(processes_ht, GINT_TO_POINTER(client_info.pid), new_client_info);
-    if (!success) return -1;
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    char str_time[20];
 
-    return 0;
-}
+    strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", tm);
 
-void store_client_info (
-    Client_Info client_info_new, 
-    Client_Info *client_info_old, 
-    GHashTable *processes_ht, 
-    Old_Client_Info old_processes[],
-    int *curr) {
-
-    Old_Client_Info archive;
-    archive.pid = client_info_new.pid;
-    strcpy(archive.name, client_info_new.name);
-
-    archive.time_stamp_start.tv_sec  = client_info_old->time_stamp.tv_sec;
-    archive.time_stamp_start.tv_usec = client_info_old->time_stamp.tv_usec;
-
-    archive.time_stamp_end.tv_sec  = client_info_new.time_stamp.tv_sec;
-    archive.time_stamp_end.tv_usec = client_info_new.time_stamp.tv_usec;
-
-    old_processes[*curr] = archive;
-    (*curr)++;
-
-    g_hash_table_remove(processes_ht, GINT_TO_POINTER(client_info_new.pid));
-    printf("Entry removed from GHashTable; Client info archived\n");
-}
-
-void send_current_status (Client_Info client_info, GHashTable *processes_ht) {
-    struct timeval curr_time_stamp;
-    gettimeofday(&curr_time_stamp, NULL);
-}
-
-void printf_archived_data (Old_Client_Info old_processes[], int curr) {
-    for (int i = 0; i < curr; i++)
-        printf("PID: %d; Name: %s\n", old_processes[i].pid, old_processes[i].name);
-}
+    char buffer[100];
+    sprintf(buffer, "%d\t%s\t%s\n", pid, str_time, str);
+    int status = write(fd, buffer, sizeof(buffer));
+    if (status < 0) {
+        perror("[ERROR_LOGGER] write");
+    }
+} 
 
 void no_zombies() {
-    // every time a child exits it emits a sigchild
+    // quando um processo-filho é criado, emite um sigchld
     struct sigaction sa;
     memset(&sa, 0, sizeof(sigaction));
     sa.sa_handler = SIG_DFL; // default handler
-    sa.sa_flags = SA_NOCLDWAIT; // dont make zombies => ability of waiting for children lost
+    sa.sa_flags = SA_NOCLDWAIT; // do not make zombies => ability of waiting for children lost
 
     sigaction(SIGCHLD, &sa, NULL);
 }
 
-void send_status (Client_Info client_info, GHashTable *processes_ht) {
-    
+ long timeval_diff(struct timeval *start, struct timeval *end) {
+    long msec = (end->tv_sec - start->tv_sec) * 1000;
+    msec += (end->tv_usec - start->tv_usec) / 1000;
+    return msec;
 }
 
-void listening_fifo (Request request, GHashTable *processes_ht, Old_Client_Info old_processes[], int *curr) {
+int store_process (const char path[], Client_Info client_info) {
+
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        error_logger("[STORE_PROCESSES] Could not open path.", getpid());
+        perror("[STORE_PROCESSES] open");
+        return -1;
+    }
+
+    Process_Info process_info;
+    process_info.active = 1;
+    process_info.pid    = client_info.pid;
+    strcpy(process_info.name, client_info.name);
+
+    process_info.time_stamp_start.tv_sec = client_info.time_stamp.tv_sec;
+    process_info.time_stamp_start.tv_usec = client_info.time_stamp.tv_usec;
+
+    write(fd, &process_info, sizeof(Process_Info));
+
+    off_t pos = lseek(fd, 0, SEEK_CUR);
+    printf("Register %ld\n", pos / sizeof(Process_Info));
+
+    close(fd);
+    return pos / sizeof(Process_Info);
+}
+
+int update_process (const char path[], Client_Info client_info) {
+    int fd = open(path, O_RDWR, 0644);
+    if (fd < 0) {
+        error_logger("[UPDATE_PROCESS] Could not open path.", getpid());
+        perror("[UPDATE_PROCESS] open");
+        return -1;
+    }
+
+    int found = 0;
+    Process_Info process_info;
+    while (read(fd, &process_info, sizeof(Process_Info)) > 0 && !found) {
+        if (process_info.active == 1 && process_info.pid == client_info.pid) {
+            process_info.active = 0;
+            process_info.time_stamp_end.tv_sec  = client_info.time_stamp.tv_sec;
+            process_info.time_stamp_end.tv_usec = client_info.time_stamp.tv_usec;
+
+            lseek(fd, - sizeof(Process_Info), SEEK_CUR);
+            write(fd, &process_info, sizeof(Process_Info));
+            found = 1;
+        }
+    }
+
+    close(fd);
+
+    if (!found) {
+        printf("Process not found.\n");
+        return -1;
+    } else {
+        printf("Processes updated and changed to inactive.\n");
+        return 0;
+    }
+}
+
+void print_inactive_process (const char path[], int pid) {
+    int fd = open(path, O_RDWR, 0644);
+    if (fd < 0) {
+        error_logger("[PRINT_PROCESS] Could not open path.", getpid());
+        perror("[PRINT_PROCESS] open");
+        return;
+    }
+
+    int found = 0;
+    Process_Info process_info;
+    while (read(fd, &process_info, sizeof(Process_Info)) > 0 && !found) {
+        if (process_info.active == 1 && process_info.pid == pid) {
+            printf("PID: %d, Name: %s\n", process_info.pid, process_info.name);
+            found = 1;
+        }
+    }
+    
+    if (!found) printf("Not found.\n");
+    close(fd);
+}
+
+void listening_fifo (Request request, const char path[]) {
 
     int flag = 1;
     while (flag) {
 
         int fd = open(request.name, O_RDWR);
         if (fd < 0) {
-            printf("Could not open fifo %d", request.pid);
-            perror("open");
+            error_logger("[LISTENING_FIFO] Could not open FIFO.", getpid());
+            perror("[LISTENING_FIFO] open");
             exit(EXIT_FAILURE);
         }
 
@@ -82,44 +139,82 @@ void listening_fifo (Request request, GHashTable *processes_ht, Old_Client_Info 
         int bytes = read(fd, &client_info, sizeof(Client_Info));
         
         if (bytes == -1) {
-            perror("read");
+            error_logger("[LISTENING_FIFO] read", getpid());
+            perror("[LISTENING_FIFO] read");
             exit(EXIT_FAILURE);
         }
 
         printf("Data read from %d\n", request.pid);
 
-        Client_Info *found_value = g_hash_table_lookup(processes_ht, GINT_TO_POINTER(client_info.pid));
-
-        if (!strcmp(client_info.type, "info_new") && found_value == NULL) {
-            if (create_new_entry(client_info, processes_ht) == -1) printf("Error creating new entry.\n");
-            else printf("New Client Info entry created.\n");
-        } else if (!strcmp(client_info.type, "info_last") && found_value != NULL) {
-            store_client_info(client_info, found_value, processes_ht, old_processes, curr);
+        if (!strcmp(client_info.type, "info_new")) {
+            store_process(path, client_info);
+        } else if (!strcmp(client_info.type, "info_last")) {
+            update_process(path, client_info);
             flag = 0;
-        } else if (!strcmp(client_info.type, "status")) {
-            send_status(client_info, processes_ht);
         }
 
         close(fd);
     }
 }
 
-int main (void) {
+void send_status (Request request, const char path[]) {
+
+    printf("Sending Status\n");
+
+    int fd_storage = open(path, O_RDWR, 0644);
+    if (fd_storage < 0) {
+        error_logger("[SEND_STATUS] Could not open storage", getpid());
+        perror("[SEND_STATUS] open");
+        exit(EXIT_FAILURE);
+    }
+
+    int fd_pipe = open(request.name, O_WRONLY);
+    if (fd_pipe < 0) {
+        error_logger("[SEND_STATUS] Could not open FIFO", getpid());
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+
+    Process_Info process_info;
+    while (read(fd_storage, &process_info, sizeof(Process_Info)) > 0) {
+        if (process_info.active == 1) {
+
+            Server_Message server_msg;
+            server_msg.pid = process_info.pid;
+            strcpy(server_msg.name, process_info.name);
+            struct timeval current_time;
+            gettimeofday(&current_time, NULL);
+            server_msg.time = timeval_diff(&process_info.time_stamp_start, &current_time);
+
+            write(fd_pipe, &server_msg, sizeof(Server_Message));
+        }
+    }
+
+    close(fd_storage);
+
+    Server_Message server_msg;
+    server_msg.pid = -1;
+    strcpy(server_msg.name, "");
+    server_msg.time = 0;
+
+    write(fd_pipe, &server_msg, sizeof(Server_Message));
+
+    printf("[SEND_STATUS] Ended.\n");
+    close(fd_pipe);
+}
+
+int main (int argc, char const *argv[]) {
+
+    if (argc < 2) return 0;
+    char *pids_folder = strdup(argv[1]); 
 
     time_t start_time = time(NULL);
 
     printf("Server on.\n");
 
-    GHashTable *processes_ht;
-    processes_ht = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
-
-    int curr = 0;
-    Old_Client_Info old_processes[MAX_MEM];
-
-    printf("Data structures created.\n");
-
     if ((mkfifo (SERVER_FIFO_PATH, 0664)) < 0) {
-        perror("mkfifo");
+        error_logger("[MONITOR MAIN] mkfifo", getpid());
+        perror("[MONITOR MAIN] mkfifo");
         exit(EXIT_FAILURE);
     }
 
@@ -131,8 +226,8 @@ int main (void) {
 
         int fd = open(SERVER_FIFO_PATH, O_RDONLY);
         if (fd < 0) {
-            printf("Could not open server fifo\n");
-            perror("open");
+            error_logger("[MONITOR MAIN] Could not open server fifo", getpid());
+            perror("[MONITOR MAIN] open");
             exit(EXIT_FAILURE);
         }
 
@@ -149,7 +244,9 @@ int main (void) {
         int res = fork();
         if (res == 0) {
             if (!strcmp(request.type, "newfifo")) {
-                listening_fifo(request, processes_ht, old_processes, &curr);
+                listening_fifo(request, pids_folder);
+            } else if (!strcmp(request.type, "status")) {
+                send_status(request, pids_folder);
             }
             _exit(0);
         }
@@ -159,12 +256,12 @@ int main (void) {
     }
 
     int status = unlink(SERVER_FIFO_PATH);
-            if (status != 0) {
-                perror("unlink");
-                exit(EXIT_FAILURE);
-            }
+    if (status != 0) {
+        perror("[MONITOR MAIN] unlink");
+        exit(EXIT_FAILURE);
+    }
 
-    printf("SERVER FIFO TERMINATED.\n");    
-    
+    printf("SERVER FIFO TERMINATED.\n"); 
+    free(pids_folder);   
     return 0;
 }
