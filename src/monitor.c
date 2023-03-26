@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "structs.h"
 #include <signal.h>
 #include <time.h>
 

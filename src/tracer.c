@@ -1,4 +1,4 @@
-#include "utils.h"
+#include "structs.h"
 
 #define MAX_ARGS 10
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
