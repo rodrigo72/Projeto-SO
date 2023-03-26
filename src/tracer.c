@@ -43,8 +43,8 @@ long timeval_diff(struct timeval *start, struct timeval *end) {
 
 int main (int argc, char const *argv[]) {
 
-    int fd = open(SERVER_FIFO_PATH, O_WRONLY);
-    if (fd < 0) {
+    int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
+    if (fd_server < 0) {
         perror("open");
         exit(EXIT_FAILURE);
     }
@@ -58,44 +58,71 @@ int main (int argc, char const *argv[]) {
             char *command = strdup(argv[3]);
             char *token = strtok(command, " ");
 
-            if (token) {
-                Client_Info client_info_1;
-                client_info_1.pid = pid;
-                strcpy(client_info_1.name, token);
-                strcpy(client_info_1.type, "new");
-                gettimeofday(&client_info_1.time_stamp, NULL);
+            if (!token) return 0;
 
-                write(fd, &client_info_1, sizeof(Client_Info));
+            char pipe_name[30];
+            snprintf(pipe_name, 30, "../tmp/%d", pid);
 
-                Client_Info client_info_2;
-                client_info_2.pid = pid;
-                strcpy(client_info_2.name, token);
-                strcpy(client_info_2.type, "update");
-
-                printf("Running PID %d\n", pid);
-                my_system(argv[3]);
-                gettimeofday(&client_info_2.time_stamp, NULL);
-
-                printf("Ended in %ld milliseconds\n", 
-                    timeval_diff(&client_info_1.time_stamp, &client_info_2.time_stamp));
-                
-                write(fd, &client_info_2, sizeof(Client_Info));
+            if (mkfifo(pipe_name, 0664) < 0) {
+                perror("mkfifo");
+                exit(EXIT_FAILURE);
             }
 
-            close(fd);
+            printf("FIFO pipe created.\n");
+
+            Request request;
+            request.pid = pid;
+            strcpy(request.type, "newfifo");
+            strcpy(request.name, pipe_name);
+
+            write(fd_server, &request, sizeof(Request)); // request for new pipe
+            close(fd_server);
+
+            printf("Request sent.\n");
+
+            int fd_client = open(pipe_name, O_WRONLY);
+            if (fd_client < 0) {
+                perror("open");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("Private connection established.\n");
+            
+            Client_Info client_info_1;
+            client_info_1.pid = pid;
+            strcpy(client_info_1.name, token);
+            strcpy(client_info_1.type, "info_new");
+            gettimeofday(&client_info_1.time_stamp, NULL);
+
+            write(fd_client, &client_info_1, sizeof(struct client_info));
+
+            printf("Data sent.\n\n");
+
+            Client_Info client_info_2;
+            client_info_2.pid = pid;
+            strcpy(client_info_2.name, token);
+            strcpy(client_info_2.type, "info_last");
+
+            printf("Running PID %d\n", pid);
+            my_system(argv[3]);
+            gettimeofday(&client_info_2.time_stamp, NULL);
+
+            printf("Ended in %ld milliseconds\n", 
+                timeval_diff(&client_info_1.time_stamp, &client_info_2.time_stamp));
+                
+            write(fd_client, &client_info_2, sizeof(Client_Info));
+            close(fd_client);
+
+            int status = unlink(pipe_name);
+            if (status != 0) {
+                perror("unlink");
+                exit(EXIT_FAILURE);
+            }
+
+            printf("FIFO removed.\n");
             free(command);
         } 
-    } else if (argc >= 2 && !strcmp(argv[1], "print")) {
-        
-        Client_Info client_info;
-        client_info.pid = -1;
-        strcpy(client_info.name, "");
-        strcpy(client_info.type, "print");
-        gettimeofday(&client_info.time_stamp, NULL);
-
-        write(fd, &client_info, sizeof(Client_Info));
-        close(fd);
-    }
+    } 
 
     return 0;
 }

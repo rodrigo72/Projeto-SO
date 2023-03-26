@@ -24,3 +24,9 @@ typedef struct old_client_info {
     struct timeval time_stamp_start;
     struct timeval time_stamp_end;
 } Old_Client_Info;
+
+typedef struct request {
+    int pid;
+    char type[20];
+    char name[30];
+} Request;

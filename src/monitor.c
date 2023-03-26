@@ -1,11 +1,11 @@
 #include "utils.h"
 #include <glib.h>
-#include <sys/select.h>
+#include <signal.h>
 
 #define MAX_MEM 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
 
-int create_new_pipe (Client_Info client_info, GHashTable *processes_ht) {
+int create_new_entry (Client_Info client_info, GHashTable *processes_ht) {
     Client_Info *new_client_info = malloc(sizeof(Client_Info *));
     new_client_info->pid = client_info.pid;
     strcpy(new_client_info->name, client_info.name);
@@ -15,18 +15,10 @@ int create_new_pipe (Client_Info client_info, GHashTable *processes_ht) {
     int success = g_hash_table_insert(processes_ht, GINT_TO_POINTER(client_info.pid), new_client_info);
     if (!success) return -1;
 
-    char pipe_name[20];
-    snprintf(pipe_name, 30, "../tmp/%d", client_info.pid);
-    if (mkfifo(pipe_name, S_IRUSR | S_IWUSR) < 0) {
-        perror("mkfifo");
-        return -1;
-    }
-
-    printf("New pipe, and new Client Info entry created.\n");
     return 0;
 }
 
-void update_process (
+void store_client_info (
     Client_Info client_info_new, 
     Client_Info *client_info_old, 
     GHashTable *processes_ht, 
@@ -51,7 +43,8 @@ void update_process (
 }
 
 void send_current_status (Client_Info client_info, GHashTable *processes_ht) {
-    
+    struct timeval curr_time_stamp;
+    gettimeofday(&curr_time_stamp, NULL);
 }
 
 void printf_archived_data (Old_Client_Info old_processes[], int curr) {
@@ -59,31 +52,28 @@ void printf_archived_data (Old_Client_Info old_processes[], int curr) {
         printf("PID: %d; Name: %s\n", old_processes[i].pid, old_processes[i].name);
 }
 
-int main (void) {
+void no_zombies() {
+    // every time a child exits it emits a sigchild
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sigaction));
+    sa.sa_handler = SIG_DFL; // default handler
+    sa.sa_flags = SA_NOCLDWAIT; // dont make zombies => ability of waiting for children lost
 
-    printf("Server on.\n");
+    sigaction(SIGCHLD, &sa, NULL);
+}
 
-    GHashTable *processes_ht;
-    processes_ht = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
+void send_status (Client_Info client_info, GHashTable *processes_ht) {
+    
+}
 
-    int curr = 0, i = 0;
-    Old_Client_Info old_processes[MAX_MEM];
+void listening_fifo (Request request, GHashTable *processes_ht, Old_Client_Info old_processes[], int *curr) {
 
-    printf("Data structures created.\n");
+    int flag = 1;
+    while (flag) {
 
-    if ((mkfifo (SERVER_FIFO_PATH, 0664)) < 0) {
-        perror("mkfifo");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Server FIFO pipe created.\n\n");
-
-    while (1) {
-
-        printf("\tReading ... (%d)\n", i); i++;
-
-        int fd = open(SERVER_FIFO_PATH, O_RDONLY);
+        int fd = open(request.name, O_RDWR);
         if (fd < 0) {
+            printf("Could not open fifo %d", request.pid);
             perror("open");
             exit(EXIT_FAILURE);
         }
@@ -96,28 +86,85 @@ int main (void) {
             exit(EXIT_FAILURE);
         }
 
+        printf("Data read from %d\n", request.pid);
+
         Client_Info *found_value = g_hash_table_lookup(processes_ht, GINT_TO_POINTER(client_info.pid));
 
-        if (!strcmp(client_info.type, "new") && found_value == NULL) {
-            printf("\tCreating new pipe (%d).\n", client_info.pid);
-            create_new_pipe(client_info, processes_ht);
-            printf("\n");
-        } else if (!strcmp(client_info.type, "status") && found_value != NULL) {
-            printf("\tSending status to PID %d.\n", client_info.pid);
-            send_current_status(client_info, processes_ht);
-            printf("\n");
-        } else if (!strcmp(client_info.type, "update") && found_value != NULL) {
-            printf("\tUpdating data.\n");
-            update_process(client_info, found_value, processes_ht, old_processes, &curr);
-            printf("\n");
-        } else if (!strcmp(client_info.type, "print")) {
-            printf("Printing:\n");
-            printf_archived_data(old_processes, curr);
-            printf("\n");
+        if (!strcmp(client_info.type, "info_new") && found_value == NULL) {
+            if (create_new_entry(client_info, processes_ht) == -1) printf("Error creating new entry.\n");
+            else printf("New Client Info entry created.\n");
+        } else if (!strcmp(client_info.type, "info_last") && found_value != NULL) {
+            store_client_info(client_info, found_value, processes_ht, old_processes, curr);
+            flag = 0;
+        } else if (!strcmp(client_info.type, "status")) {
+            send_status(client_info, processes_ht);
         }
 
         close(fd);
     }
+}
+
+int main (void) {
+
+    time_t start_time = time(NULL);
+
+    printf("Server on.\n");
+
+    GHashTable *processes_ht;
+    processes_ht = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, NULL);
+
+    int curr = 0;
+    Old_Client_Info old_processes[MAX_MEM];
+
+    printf("Data structures created.\n");
+
+    if ((mkfifo (SERVER_FIFO_PATH, 0664)) < 0) {
+        perror("mkfifo");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Server FIFO pipe created.\n\n");
+
+    no_zombies();
+    time_t current_time = time(NULL);
+    while (!(difftime(current_time, start_time) >= 300)) {
+
+        int fd = open(SERVER_FIFO_PATH, O_RDONLY);
+        if (fd < 0) {
+            printf("Could not open server fifo\n");
+            perror("open");
+            exit(EXIT_FAILURE);
+        }
+
+        Request request;
+        int bytes = read(fd, &request, sizeof(Request));
+
+        if (bytes == -1) {
+            perror("read");
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Request from %d received.\n", request.pid);
+
+        int res = fork();
+        if (res == 0) {
+            if (!strcmp(request.type, "newfifo")) {
+                listening_fifo(request, processes_ht, old_processes, &curr);
+            }
+            _exit(0);
+        }
+
+        close(fd);
+        current_time = time(NULL);
+    }
+
+    int status = unlink(SERVER_FIFO_PATH);
+            if (status != 0) {
+                perror("unlink");
+                exit(EXIT_FAILURE);
+            }
+
+    printf("SERVER FIFO TERMINATED.\n");    
     
     return 0;
 }
