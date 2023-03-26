@@ -35,6 +35,7 @@ int my_system (const char *string) {
     return r;
 }
 
+// calcula a diferença em milisegundos de duas estruturas timeval
 long timeval_diff(struct timeval *start, struct timeval *end) {
     long msec = (end->tv_sec - start->tv_sec) * 1000;
     msec += (end->tv_usec - start->tv_usec) / 1000;
@@ -63,6 +64,7 @@ int main (int argc, char const *argv[]) {
             char pipe_name[30];
             snprintf(pipe_name, 30, "../tmp/%d", pid);
 
+            // cria um named pipe para comunicação "impedida" com o servidor
             if (mkfifo(pipe_name, 0664) < 0) {
                 perror("mkfifo");
                 exit(EXIT_FAILURE);
@@ -70,6 +72,9 @@ int main (int argc, char const *argv[]) {
 
             printf("FIFO pipe created.\n");
 
+            // criação de uma request do tipo "newfifo", ou seja
+            // o server depois de receber a request irá "ouvir"
+            // por uma estrutura client_info
             Request request;
             request.pid = pid;
             strcpy(request.type, "newfifo");
@@ -103,6 +108,8 @@ int main (int argc, char const *argv[]) {
             strcpy(client_info_2.name, token);
             strcpy(client_info_2.type, "info_last");
 
+            // função é excutada com o my_system() e de seguida é enviado
+            // mais uma vez uma estrutura client_info do tipo "info_last" com o novo time_stamp
             printf("Running PID %d\n", pid);
             my_system(argv[3]);
             gettimeofday(&client_info_2.time_stamp, NULL);
@@ -113,6 +120,7 @@ int main (int argc, char const *argv[]) {
             write(fd_client, &client_info_2, sizeof(Client_Info));
             close(fd_client);
 
+            // o pipe passa a ser desnecessário e o programa para de executar
             int status = unlink(pipe_name);
             if (status != 0) {
                 perror("unlink");
@@ -152,6 +160,9 @@ int main (int argc, char const *argv[]) {
                 exit(EXIT_FAILURE);
             }
 
+            // O cliente fica a ouvir por mensagens do servidor (server_message)
+            // com dados acerca do processos em execução
+            // O servidor envia uma mensagem com pid = -1 para indicar que pode parar de ouvir
             int flag = 1;
             while (flag) {
 

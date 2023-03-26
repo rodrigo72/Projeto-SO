@@ -4,10 +4,13 @@
 
 #define MAX_MEM 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
-#define ERROR_LOGS_PATH "../logs/errLogs"
-#define REQUEST_LOGS_PATH "../logs/reqLogs"
+#define ERROR_LOGS_PATH "../logs/errLogs.txt"
+#define REQUEST_LOGS_PATH "../logs/reqLogs.txt"
 
+// error logs são escritos para um ficheiro errLogs com buffers 
 void error_logger (const char str[], int pid) {
+
+    perror(str);
     int fd = open(ERROR_LOGS_PATH, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         perror("[ERROR_LOGGER] open");
@@ -19,14 +22,16 @@ void error_logger (const char str[], int pid) {
 
     strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", tm);
 
-    char buffer[100];
+    char buffer[200];
     sprintf(buffer, "%d\t%s\t%s\n", pid, str_time, str);
-    int status = write(fd, buffer, sizeof(buffer));
+    int status = write(fd, buffer, strlen(buffer));
     if (status < 0) {
         perror("[ERROR_LOGGER] write");
     }
 } 
 
+// função que faz com que os processos filho não se tornem zombies
+// desse modo, o pai não tem de esperar pelos filhos
 void no_zombies() {
     // quando um processo-filho é criado, emite um sigchld
     struct sigaction sa;
@@ -37,18 +42,19 @@ void no_zombies() {
     sigaction(SIGCHLD, &sa, NULL);
 }
 
- long timeval_diff(struct timeval *start, struct timeval *end) {
+// calcula a diferença em milisegundos de duas estruturas timeval
+long timeval_diff(struct timeval *start, struct timeval *end) {
     long msec = (end->tv_sec - start->tv_sec) * 1000;
     msec += (end->tv_usec - start->tv_usec) / 1000;
     return msec;
 }
 
+// escreve os dados de um processo ativo para um ficheiro
 int store_process (const char path[], Client_Info client_info) {
 
     int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         error_logger("[STORE_PROCESSES] Could not open path.", getpid());
-        perror("[STORE_PROCESSES] open");
         return -1;
     }
 
@@ -69,11 +75,11 @@ int store_process (const char path[], Client_Info client_info) {
     return pos / sizeof(Process_Info);
 }
 
+// atualiza um processo que se tornou inativo com informação acerca de quando terminou
 int update_process (const char path[], Client_Info client_info) {
     int fd = open(path, O_RDWR, 0644);
     if (fd < 0) {
         error_logger("[UPDATE_PROCESS] Could not open path.", getpid());
-        perror("[UPDATE_PROCESS] open");
         return -1;
     }
 
@@ -97,7 +103,7 @@ int update_process (const char path[], Client_Info client_info) {
         printf("Process not found.\n");
         return -1;
     } else {
-        printf("Processes updated and changed to inactive.\n");
+        printf("Process updated and changed to inactive.\n");
         return 0;
     }
 }
@@ -106,7 +112,6 @@ void print_inactive_process (const char path[], int pid) {
     int fd = open(path, O_RDWR, 0644);
     if (fd < 0) {
         error_logger("[PRINT_PROCESS] Could not open path.", getpid());
-        perror("[PRINT_PROCESS] open");
         return;
     }
 
@@ -123,6 +128,8 @@ void print_inactive_process (const char path[], int pid) {
     close(fd);
 }
 
+// ouve e gere informação de um processo 
+// para de ouvir quando recebe uma informaçao do tipo "info_last"
 void listening_fifo (Request request, const char path[]) {
 
     int flag = 1;
@@ -131,7 +138,6 @@ void listening_fifo (Request request, const char path[]) {
         int fd = open(request.name, O_RDWR);
         if (fd < 0) {
             error_logger("[LISTENING_FIFO] Could not open FIFO.", getpid());
-            perror("[LISTENING_FIFO] open");
             exit(EXIT_FAILURE);
         }
 
@@ -140,7 +146,6 @@ void listening_fifo (Request request, const char path[]) {
         
         if (bytes == -1) {
             error_logger("[LISTENING_FIFO] read", getpid());
-            perror("[LISTENING_FIFO] read");
             exit(EXIT_FAILURE);
         }
 
@@ -157,6 +162,8 @@ void listening_fifo (Request request, const char path[]) {
     }
 }
 
+// envia para o cliente server_message acerca dos processos ativos
+// percorre a storage e envia os ficheiros com a flag active a 1
 void send_status (Request request, const char path[]) {
 
     printf("Sending Status\n");
@@ -164,14 +171,12 @@ void send_status (Request request, const char path[]) {
     int fd_storage = open(path, O_RDWR, 0644);
     if (fd_storage < 0) {
         error_logger("[SEND_STATUS] Could not open storage", getpid());
-        perror("[SEND_STATUS] open");
         exit(EXIT_FAILURE);
     }
 
     int fd_pipe = open(request.name, O_WRONLY);
     if (fd_pipe < 0) {
         error_logger("[SEND_STATUS] Could not open FIFO", getpid());
-        perror("open");
         exit(EXIT_FAILURE);
     }
 
@@ -214,12 +219,12 @@ int main (int argc, char const *argv[]) {
 
     if ((mkfifo (SERVER_FIFO_PATH, 0664)) < 0) {
         error_logger("[MONITOR MAIN] mkfifo", getpid());
-        perror("[MONITOR MAIN] mkfifo");
         exit(EXIT_FAILURE);
     }
 
     printf("Server FIFO pipe created.\n\n");
 
+    // server ouve por requests; em teoria, para passado 5 minutos
     no_zombies();
     time_t current_time = time(NULL);
     while (!(difftime(current_time, start_time) >= 300)) {
@@ -227,7 +232,6 @@ int main (int argc, char const *argv[]) {
         int fd = open(SERVER_FIFO_PATH, O_RDONLY);
         if (fd < 0) {
             error_logger("[MONITOR MAIN] Could not open server fifo", getpid());
-            perror("[MONITOR MAIN] open");
             exit(EXIT_FAILURE);
         }
 
@@ -235,7 +239,7 @@ int main (int argc, char const *argv[]) {
         int bytes = read(fd, &request, sizeof(Request));
 
         if (bytes == -1) {
-            perror("read");
+            error_logger("[MONITOR MAIN] Could not read request", getpid());
             exit(EXIT_FAILURE);
         }
 
