@@ -1,6 +1,7 @@
 #include "structs.h"
 #include <signal.h>
 #include <time.h>
+#include <errno.h>
 
 #define MAX_MEM 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
@@ -23,7 +24,7 @@ void error_logger (const char str[], int pid) {
     strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", tm);
 
     char buffer[200];
-    sprintf(buffer, "%d\t%s\t%s\n", pid, str_time, str);
+    sprintf(buffer, "%d\t%s\t%s: %s\n", pid, str_time, str, strerror(errno));
     int status = write(fd, buffer, strlen(buffer));
     if (status < 0) {
         perror("[ERROR_LOGGER] write");
