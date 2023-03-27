@@ -173,9 +173,9 @@ int main (int argc, char const *argv[]) {
                     exit(EXIT_FAILURE);
                 }
 
-                if (server_msg.pid != -1) {
+                if (server_msg.type == LISTEN) {
                     printf("%d %s %ld ms\n", server_msg.pid, server_msg.name, server_msg.time);
-                } else {
+                } else if (server_msg.type == STOP) {
                     printf("Exiting.\n");
                     flag = 0;
                 }

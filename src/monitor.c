@@ -221,6 +221,7 @@ void send_status (Request request, const char path[]) {
             struct timeval current_time;
             gettimeofday(&current_time, NULL);
             server_msg.time = timeval_diff(&process_info.time_stamp_start, &current_time);
+            server_msg.type = LISTEN;
 
             write(fd_pipe, &server_msg, sizeof(Server_Message));
         }
@@ -232,6 +233,7 @@ void send_status (Request request, const char path[]) {
     server_msg.pid = -1;
     strcpy(server_msg.name, "");
     server_msg.time = 0;
+    server_msg.type = STOP;
 
     write(fd_pipe, &server_msg, sizeof(Server_Message));
 

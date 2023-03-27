@@ -21,6 +21,11 @@ typedef enum client_info_type {
     LAST
 } Client_Info_Type;
 
+typedef enum server_message_type {
+    LISTEN,
+    STOP
+} Server_Message_Type;
+
 // cliente manda para o servidor
 typedef struct client_info {
     int pid;
@@ -50,4 +55,5 @@ typedef struct server_message {
     int pid;
     char name[20];
     long time;
+    Server_Message_Type type;
 } Server_Message;
