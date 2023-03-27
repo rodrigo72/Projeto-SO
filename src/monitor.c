@@ -8,7 +8,7 @@
 #define ERROR_LOGS_PATH "../logs/errLogs.txt"
 #define REQUEST_LOGS_PATH "../logs/reqLogs.txt"
 
-// error logs são escritos para um ficheiro errLogs com buffers 
+// error logs são escritos para um ficheiro errLogs
 void error_logger (const char str[], int pid) {
 
     perror(str);
@@ -28,6 +28,36 @@ void error_logger (const char str[], int pid) {
     int status = write(fd, buffer, strlen(buffer));
     if (status < 0) {
         perror("[ERROR_LOGGER] write");
+    }
+} 
+
+// request logs são escritos para um ficheiro reqLogs
+void request_logger (Request_Types type, int pid) {
+
+    int fd = open(REQUEST_LOGS_PATH, O_WRONLY | O_CREAT | O_APPEND, S_IRUSR | S_IWUSR);
+    if (fd < 0) {
+        error_logger("[REQUEST_LOGGER] open", getpid());
+    }
+
+    time_t t = time(NULL);
+    struct tm *tm = localtime(&t);
+    char str_time[20];
+    strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", tm);
+    
+    char buffer[200];
+
+    switch (type) {
+        case EXECUTE:
+            sprintf(buffer, "%d\t%s\tEXECUTE\n", pid, str_time);
+            break;
+        case STATUS:
+            sprintf(buffer, "%d\t%s\tSTATUS\n", pid, str_time);
+            break;
+    }
+
+    int status = write(fd, buffer, strlen(buffer));
+    if (status < 0) {
+        error_logger("[REQUEST_LOGGER] write", getpid());
     }
 } 
 
@@ -152,9 +182,9 @@ void listening_fifo (Request request, const char path[]) {
 
         printf("Data read from %d\n", request.pid);
 
-        if (!strcmp(client_info.type, "info_new")) {
+        if (client_info.type == FIRST) {
             store_process(path, client_info);
-        } else if (!strcmp(client_info.type, "info_last")) {
+        } else if (client_info.type == LAST) {
             update_process(path, client_info);
             flag = 0;
         }
@@ -248,9 +278,10 @@ int main (int argc, char const *argv[]) {
 
         int res = fork();
         if (res == 0) {
-            if (!strcmp(request.type, "newfifo")) {
+            request_logger(request.type, getpid());
+            if (request.type == EXECUTE) {
                 listening_fifo(request, pids_folder);
-            } else if (!strcmp(request.type, "status")) {
+            } else if (request.type == STATUS) {
                 send_status(request, pids_folder);
             }
             _exit(0);

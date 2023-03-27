@@ -77,7 +77,7 @@ int main (int argc, char const *argv[]) {
             // por uma estrutura client_info
             Request request;
             request.pid = pid;
-            strcpy(request.type, "newfifo");
+            request.type = EXECUTE;
             strcpy(request.name, pipe_name);
 
             write(fd_server, &request, sizeof(Request)); // request for new pipe
@@ -96,7 +96,7 @@ int main (int argc, char const *argv[]) {
             Client_Info client_info_1;
             client_info_1.pid = pid;
             strcpy(client_info_1.name, token);
-            strcpy(client_info_1.type, "info_new");
+            client_info_1.type = FIRST;
             gettimeofday(&client_info_1.time_stamp, NULL);
 
             write(fd_client, &client_info_1, sizeof(struct client_info));
@@ -106,7 +106,7 @@ int main (int argc, char const *argv[]) {
             Client_Info client_info_2;
             client_info_2.pid = pid;
             strcpy(client_info_2.name, token);
-            strcpy(client_info_2.type, "info_last");
+            client_info_2.type = LAST;
 
             // função é excutada com o my_system() e de seguida é enviado
             // mais uma vez uma estrutura client_info do tipo "info_last" com o novo time_stamp
@@ -146,7 +146,7 @@ int main (int argc, char const *argv[]) {
 
             Request request;
             request.pid = pid;
-            strcpy(request.type, "status");
+            request.type = STATUS;
             strcpy(request.name, pipe_name);
 
             write(fd_server, &request, sizeof(Request)); // request for new pipe

@@ -11,12 +11,22 @@
 
 #include <sys/time.h>
 
+typedef enum request_types {
+    EXECUTE,
+    STATUS
+} Request_Types;
+
+typedef enum client_info_type {
+    FIRST,
+    LAST
+} Client_Info_Type;
+
 // cliente manda para o servidor
 typedef struct client_info {
     int pid;
     char name[20];
-    char type[20];
     struct timeval time_stamp;
+    Client_Info_Type type;
 } Client_Info;
 
 // servidor guarda a informação dos processos em ficheiro
@@ -31,8 +41,8 @@ typedef struct process_info {
 // cliente envia request de conexão para o servidor 
 typedef struct request {
     int pid;
-    char type[20];
     char name[30];
+    Request_Types type;
 } Request;
 
 // servidor envia informação para o cliente
