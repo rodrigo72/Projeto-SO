@@ -13,7 +13,8 @@
 
 typedef enum request_types {
     EXECUTE,
-    STATUS
+    STATUS,
+    STATS_TIME
 } Request_Types;
 
 typedef enum client_info_type {
@@ -51,3 +52,11 @@ typedef struct server_message {
     char name[100];
     long time;
 } Server_Message;
+
+typedef struct client_message_pid {
+    int pid;
+} Client_Message_PID;
+
+typedef struct server_message_total_time {
+    long total_time;
+} Server_Message_Total_Time;
