@@ -5,7 +5,57 @@
 #define MAX_ARG_LENGTH 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
 
-void execute_chained_processes (const char *pipeline) {
+// calcula a diferença em milisegundos de duas estruturas timeval
+long timeval_diff(struct timeval *start, struct timeval *end) {
+    long msec = (end->tv_sec - start->tv_sec) * 1000;
+    msec += (end->tv_usec - start->tv_usec) / 1000;
+    return msec;
+}
+
+void send_request (int fd_server, int pid, const char name[], Request_Types type) {
+    Request request;
+    request.pid = pid;
+    strcpy(request.name, name);
+    request.type = type;
+
+    write(fd_server, &request, sizeof(Request));
+    printf("Request sent.\n");
+}
+
+Client_Message create_client_msg (int pid, const char name[], Client_Info_Types type) {
+    Client_Message client_message;
+    client_message.pid = pid;
+    strcpy(client_message.name, name);
+    client_message.type = type;
+    gettimeofday(&client_message.time_stamp, NULL);
+
+    return client_message;
+}
+
+void get_names (const char* pipeline, char names[]) {
+    char* aux = strdup(pipeline);
+
+    for (int i = 0; aux != NULL && i < MAX_COMMANDS; i++) {
+        char* cmd = strsep(&aux, "|");
+        int len = strlen(cmd);
+        if (cmd == NULL || len == 0) {
+            break;
+        }
+
+        char* arg = strtok(cmd, " ");
+        if (arg != NULL) {
+            strcat(names, arg);
+            strcat(names, " | ");
+        }
+    }
+
+    int names_len = strlen(names);
+    if (names_len >= 3 && strcmp(names + names_len - 3, " | ") == 0) {
+        names[names_len - 3] = '\0';
+    }
+}
+
+long execute_chained_programs (int fd, char names[], const char *pipeline) {
     
     int num_cmds = 0;
     char ***commands = malloc(MAX_COMMANDS * sizeof(char **));
@@ -19,6 +69,10 @@ void execute_chained_processes (const char *pipeline) {
     }
     
     char *aux = strdup(pipeline);
+
+    int pid = getpid();
+    Client_Message client_message_1 = create_client_msg(pid, names, FIRST);
+    write(fd, &client_message_1, sizeof(Client_Message));
 
     for (int i = 0; aux != NULL && i < MAX_COMMANDS; i++) {
         char *cmd = strsep(&aux, "|");
@@ -92,39 +146,19 @@ void execute_chained_processes (const char *pipeline) {
         }
     }
 
+    Client_Message client_message_2 = create_client_msg(pid, names, LAST);
+    write(fd, &client_message_2, sizeof(Client_Message));
+
     for (int i = 0; i < MAX_COMMANDS; i++) {
-        for (int j = 0; j < MAX_ARGS; j++) {
-            free(commands[i][j]);
-        }
+        for (int j = 0; j < MAX_ARGS; j++) free(commands[i][j]);
         free(commands[i]);
     }
+
     free(commands);
+    return timeval_diff(&client_message_1.time_stamp, &client_message_2.time_stamp);
 }
 
-void get_names (const char* pipeline, char names[]) {
-    char* aux = strdup(pipeline);
-
-    for (int i = 0; aux != NULL && i < MAX_COMMANDS; i++) {
-        char* cmd = strsep(&aux, "|");
-        int len = strlen(cmd);
-        if (cmd == NULL || len == 0) {
-            break;
-        }
-
-        char* arg = strtok(cmd, " ");
-        if (arg != NULL) {
-            strcat(names, arg);
-            strcat(names, " | ");
-        }
-    }
-
-    int names_len = strlen(names);
-    if (names_len >= 3 && strcmp(names + names_len - 3, " | ") == 0) {
-        names[names_len - 3] = '\0';
-    }
-}
-
-int my_system (const char *string) {
+long my_system (int fd, char name[], const char *string) {
 
     char **sep = malloc(sizeof(char *) * MAX_ARGS);
     memset(sep, 0, sizeof(char *) * MAX_ARGS);
@@ -137,66 +171,57 @@ int my_system (const char *string) {
         strncpy(sep[i], arg, strlen(arg));
     }
 
-    int fres = fork(), r = 1;
+    Client_Message client_message_1 = create_client_msg(getpid(), name, FIRST);
+    write(fd, &client_message_1, sizeof(Client_Message));
+
+    int fres = fork();
     if (fres == 0) {
         int res = execvp(sep[0], sep);
-        printf("Did not execute command (%d).\n", res); r = -1;
+        printf("Did not execute command (%d).\n", res);
         _exit(EXIT_FAILURE);
     } else {
         int status;
         waitpid(fres, &status, 0);
         if (!WIFEXITED(status)) {
-            printf("Error.\n"); r = -1;
+            printf("Error.\n");
         }
     }
+
+    Client_Message client_message_2 = create_client_msg(getpid(), name, LAST);
+    write(fd, &client_message_2, sizeof(Client_Message));
 
     for (int i = 0; i < MAX_ARGS; i++) free(sep[i]);
     free(sep);
 
-    return r;
-}
-
-// calcula a diferença em milisegundos de duas estruturas timeval
-long timeval_diff(struct timeval *start, struct timeval *end) {
-    long msec = (end->tv_sec - start->tv_sec) * 1000;
-    msec += (end->tv_usec - start->tv_usec) / 1000;
-    return msec;
+    return timeval_diff(&client_message_1.time_stamp, &client_message_2.time_stamp);
 }
 
 int main (int argc, char const *argv[]) {
 
+    int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
+    if (fd_server < 0) {
+        perror("[Main] read server fifo");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Connected to server.\n");
+
+    int pid = getpid();
+    char pipe_name[30];
+    snprintf(pipe_name, 30, "../tmp/%d", pid);
+
+    if (mkfifo(pipe_name, 0664) < 0) {
+        perror("[main] mkfifo");
+        exit(EXIT_FAILURE);
+    }
+
     if (argc >= 4 && !strcmp(argv[1], "execute") && !strcmp(argv[2], "-u")) {
 
-        int pid = getpid();
         char *command = strdup(argv[3]);
         char *token = strtok(command, " "); // command name
-
         if (!token) return 0;
 
-        char pipe_name[30];
-        snprintf(pipe_name, 30, "../tmp/%d", pid);
-
-        int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
-        if (fd_server < 0) {
-            perror("[Main] read server fifo");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("Connected to server.\n");
-
-        if (mkfifo(pipe_name, 0664) < 0) {
-            perror("[Main] mkfifo");
-            exit(EXIT_FAILURE);
-        }
-
-        Request request;
-        request.pid = getpid();
-        strcpy(request.name, pipe_name);
-        request.type = EXECUTE;
-
-        write(fd_server, &request, sizeof(Request));
-        printf("Request sent.\n");
-
+        send_request(fd_server, pid, pipe_name, EXECUTE);
         close(fd_server);
         printf("Main connection closed.\n");
 
@@ -206,41 +231,15 @@ int main (int argc, char const *argv[]) {
             exit(EXIT_FAILURE);
         }
 
-        Client_Message client_message_1;
-        client_message_1.pid = pid;
-        strcpy(client_message_1.name, token);
-        client_message_1.type = FIRST;
-        gettimeofday(&client_message_1.time_stamp, NULL);
-
-        write(fd_client, &client_message_1, sizeof(Client_Message));
-        printf("Info sent.\n");
-
-        Client_Message client_message_2;
-        client_message_2.pid = pid;
-        strcpy(client_message_2.name, token);
-        client_message_2.type = LAST;
-
         printf("\n-------------------------------------\n");
         printf("Running PID %d\n", pid);
-        my_system(argv[3]);
-        gettimeofday(&client_message_2.time_stamp, NULL);
-
-        printf("Ended in %ld milliseconds\n", 
-            timeval_diff(&client_message_1.time_stamp, &client_message_2.time_stamp));
-        printf("\n-------------------------------------\n");
+        long time = my_system(fd_client, token, argv[3]);
+        printf("\nEnded in %ld milliseconds\n", time);
+        printf("-------------------------------------\n\n");
                 
-        write(fd_client, &client_message_2, sizeof(Client_Message));
-        printf("Info sent.\n");
         close(fd_client);
-        printf("Private FD closed\n");
+        printf("Private FD closed.\n");
 
-        int status = unlink(pipe_name);
-        if (status != 0) {
-            perror("unlink");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("FIFO removed.\n");
         free(command);
 
     } else if (argc >= 4 && !strcmp(argv[1], "execute") && !strcmp(argv[2], "-p")) {
@@ -248,31 +247,7 @@ int main (int argc, char const *argv[]) {
         char names[100];
         get_names(argv[3], names);
 
-        int pid = getpid();
-        char pipe_name[30];
-        snprintf(pipe_name, 30, "../tmp/%d", pid);
-
-        int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
-        if (fd_server < 0) {
-            perror("[Main] read server fifo");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("Connected to server.\n");
-
-        if (mkfifo(pipe_name, 0664) < 0) {
-            perror("[Main] mkfifo");
-            exit(EXIT_FAILURE);
-        }
-
-        Request request;
-        request.pid = getpid();
-        strcpy(request.name, pipe_name);
-        request.type = EXECUTE;
-
-        write(fd_server, &request, sizeof(Request));
-        printf("Request sent.\n");
-
+        send_request(fd_server, pid, pipe_name, EXECUTE);
         close(fd_server);
         printf("Main connection closed.\n");
 
@@ -282,67 +257,18 @@ int main (int argc, char const *argv[]) {
             exit(EXIT_FAILURE);
         }
 
-        Client_Message client_message_1;
-        client_message_1.pid = pid;
-        strcpy(client_message_1.name, names);
-        client_message_1.type = FIRST;
-        gettimeofday(&client_message_1.time_stamp, NULL);
-
-        write(fd_client, &client_message_1, sizeof(Client_Message));
-        printf("Info sent.\n");
-
-        Client_Message client_message_2;
-        client_message_2.pid = pid;
-        strcpy(client_message_2.name, names);
-        client_message_2.type = LAST;
-
         printf("\n-------------------------------------\n");
         printf("Running PID %d\n", pid);
-        execute_chained_processes(argv[3]);
-        gettimeofday(&client_message_2.time_stamp, NULL);
-
-        printf("Ended in %ld milliseconds\n", 
-            timeval_diff(&client_message_1.time_stamp, &client_message_2.time_stamp));
-        printf("\n-------------------------------------\n");
+        long time = execute_chained_programs(fd_client, names, argv[3]);
+        printf("\nEnded in %ld milliseconds\n", time);
+        printf("-------------------------------------\n\n");
                 
-        write(fd_client, &client_message_2, sizeof(Client_Message));
-        printf("Info sent.\n");
         close(fd_client);
         printf("Private FD closed\n");
 
-        int status = unlink(pipe_name);
-        if (status != 0) {
-            perror("unlink");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("FIFO removed.\n");
     } else if (argc >= 2 && !strcmp(argv[1], "status")) {
 
-        char pipe_name[30];
-        snprintf(pipe_name, 30, "../tmp/%d", getpid());
-
-        int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
-        if (fd_server < 0) {
-            perror("[Main] read server fifo");
-            exit(EXIT_FAILURE);
-        }
-
-        printf("Connected to server.\n");
-
-        if (mkfifo(pipe_name, 0664) < 0) {
-            perror("[Main] mkfifo");
-            exit(EXIT_FAILURE);
-        }
-
-        Request request;
-        request.pid = getpid();
-        strcpy(request.name, pipe_name);
-        request.type = STATUS;
-
-        write(fd_server, &request, sizeof(Request));
-        printf("Request sent.\n");
-
+        send_request(fd_server, pid, pipe_name, STATUS);
         close(fd_server);
         printf("Main connection closed.\n");
 
@@ -362,39 +288,9 @@ int main (int argc, char const *argv[]) {
         if (bytes < 0) perror("read server messages");
         close(fd_client);
 
-        int status = unlink(pipe_name);
-        if (status != 0) {
-            perror("unlink");
-            exit(EXIT_FAILURE);
-        }
-        printf("\nFIFO removed.\n");
-
     } else if (argc >= 3 && !strcmp(argv[1], "stats-time")) {
 
-        char pipe_name[30];
-        snprintf(pipe_name, 30, "../tmp/%d", getpid());
-
-        int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
-        if (fd_server < 0) {
-            perror("[Main] read server fifo");
-            exit(EXIT_FAILURE);
-        }
-
-            printf("Connected to server.\n");
-
-        if (mkfifo(pipe_name, 0664) < 0) {
-            perror("[Main] mkfifo");
-            exit(EXIT_FAILURE);
-        }
-
-        Request request;
-        request.pid = getpid();
-        strcpy(request.name, pipe_name);
-        request.type = STATS_TIME;
-
-        write(fd_server, &request, sizeof(Request));
-        printf("Request sent.\n");
-
+        send_request(fd_server, pid, pipe_name, STATS_TIME);
         close(fd_server);
         printf("Main connection closed.\n");
 
@@ -424,18 +320,18 @@ int main (int argc, char const *argv[]) {
         if (bytes < 0) {
             perror("read");
         } else {
-            printf("Total execution time is %ld ms", server_msg.total_time);
+            printf("Total execution time is %ld ms\n", server_msg.total_time);
         }
 
         close(fd_client);
-
-        int status = unlink(pipe_name);
-        if (status != 0) {
-            perror("unlink");
-            exit(EXIT_FAILURE);
-        }
-        printf("\nFIFO removed.\n");
     } 
+
+    int status = unlink(pipe_name);
+    if (status != 0) {
+        perror("unlink");
+        exit(EXIT_FAILURE);
+    }
+    printf("FIFO removed.\n");
 
     return 0;
 }
