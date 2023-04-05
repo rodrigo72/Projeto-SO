@@ -29,25 +29,25 @@ typedef struct request {
 
 typedef struct client_message {
     int pid;
-    char name[20];
+    char name[100];
     struct timeval time_stamp;
     Client_Info_Types type;
 } Client_Message;
 
 typedef struct stored_client_message {
     int pid;
-    char name[20];
+    char name[100];
     struct timeval time_stamp;
     int status;
 } Stored_Client_Message;
 
 typedef struct stored_process_info {
-    char name[20];
+    char name[100];
     long runtime;
 } Stored_Process_Info;
 
 typedef struct server_message {
     int pid;
-    char name[20];
+    char name[100];
     long time;
 } Server_Message;
