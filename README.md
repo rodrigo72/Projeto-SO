@@ -29,8 +29,8 @@ Foram criadas funções de escrita de logs para errors e para requests.
 - [x] tracer execute -p (execução encadeada de programas)
 - [x] Armazenamento de informação sobre programas terminados
 - [ ] Consulta de programas terminados:
-    - [ ] tracer stats-time
-    - [ ] tracer stats-command
+    - [x] tracer stats-time
+    - [x] tracer stats-command
     - [ ] tracer stats-uniq
 
 ## Informações

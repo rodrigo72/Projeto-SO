@@ -324,7 +324,48 @@ int main (int argc, char const *argv[]) {
         }
 
         close(fd_client);
-    } 
+
+    } else if (argc >= 4 && !strcmp(argv[1], "stats-command")) {
+        send_request(fd_server, pid, pipe_name, STATS_COMMAND);
+        close(fd_server);
+        printf("Main connection closed.\n");
+
+        int fd_client = open(pipe_name, O_WRONLY);
+        if (fd_client < 0) {
+            perror("open client fifo");
+            exit(EXIT_FAILURE);
+        }
+
+        Client_Message_Command client_msg_cmd;
+        strcpy(client_msg_cmd.name, argv[2]);
+        write(fd_client, &client_msg_cmd, sizeof(Client_Message_Command));
+        printf("Message sent.\n");
+
+        for (int i = 3; i < argc; i++) {
+            Client_Message_PID client_msg;
+            client_msg.pid = atoi(argv[i]);
+            write(fd_client, &client_msg, sizeof(Client_Message_PID));
+            printf("Message sent.\n");
+        }
+
+        close(fd_client);
+        fd_client = open(pipe_name, O_RDONLY);
+        if (fd_client < 0) {
+            perror("open client fifo");
+            exit(EXIT_FAILURE);
+        }
+
+        Server_Message_Count server_msg;
+        int bytes = read(fd_client, &server_msg, sizeof(Server_Message_Count));
+        if (bytes < 0) {
+            perror("read");
+        } else {
+            printf("%s was executed %d times.\n", argv[2], server_msg.count);
+        }
+
+        close(fd_client);
+
+    }
 
     int status = unlink(pipe_name);
     if (status != 0) {

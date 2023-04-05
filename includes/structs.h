@@ -14,7 +14,8 @@
 typedef enum request_types {
     EXECUTE,
     STATUS,
-    STATS_TIME
+    STATS_TIME,
+    STATS_COMMAND
 } Request_Types;
 
 typedef enum client_info_type {
@@ -60,3 +61,11 @@ typedef struct client_message_pid {
 typedef struct server_message_total_time {
     long total_time;
 } Server_Message_Total_Time;
+
+typedef struct client_message_command {
+    char name[100];
+} Client_Message_Command;
+
+typedef struct server_message_count {
+    int count;
+} Server_Message_Count;

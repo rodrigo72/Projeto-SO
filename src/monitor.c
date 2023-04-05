@@ -57,6 +57,9 @@ void request_logger (Request_Types type, int pid) {
         case STATS_TIME:
             sprintf(buffer, "%d\t%s\tSTATS_TIME\n", pid, str_time);
             break;
+        case STATS_COMMAND:
+            sprintf(buffer, "%d\t%s\tSTATS_COMMAND\n", pid, str_time);
+            break;
         default:
             break;
     }
@@ -278,8 +281,6 @@ int req_stats_time (Request request, const char pids_folder[]) {
     Client_Message_PID client_msg_pid;
     while ((bytes = read(fd_client, &client_msg_pid, sizeof(Client_Message_PID))) > 0) {
 
-        if (client_msg_pid.pid == -1) break;
-
         char path_pid[50];
         sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
 
@@ -318,6 +319,71 @@ int req_stats_time (Request request, const char pids_folder[]) {
     server_msg.total_time = total;
     write(fd_client, &server_msg, sizeof(Server_Message_Total_Time));
     printf("Total time sent.\n");
+
+    close(fd_client);
+    printf("FD closed.\n");
+    return 0;
+}
+
+int req_stats_command (Request request, const char pids_folder[]) {
+    printf("Waiting ...\n");
+    int fd_client = open(request.name, O_RDONLY);
+    if (fd_client < 0) {
+        error_logger("[req_stats_time] 1º open client fifo", getpid());
+        return -1;
+    }
+
+    long count = 0;
+    Client_Message_Command client_msg_cmd;
+
+    int bytes = read(fd_client, &client_msg_cmd, sizeof(Client_Message_Command));
+    if (bytes < 0) {
+        error_logger("[req_stats_command] read", getpid());
+        return -1;
+    }
+
+    Client_Message_PID client_msg_pid;
+    while ((bytes = read(fd_client, &client_msg_pid, sizeof(Client_Message_PID))) > 0) {
+        char path_pid[50];
+        sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
+
+        printf("[%s]\n", path_pid);
+
+        int fd_pid = open(path_pid, O_RDONLY);
+        if (fd_pid < 0) {
+            error_logger("[req_stats_time] open fd_pid", getpid());
+            continue;
+        }
+
+        Stored_Process_Info stored_process_info;
+        int bytes = read(fd_pid, &stored_process_info, sizeof(Stored_Process_Info));
+        if (bytes < 0) {
+            error_logger("[req_stats_time] read stored process info", getpid());
+            continue;
+        }
+
+        if (!strcmp(stored_process_info.name, client_msg_cmd.name) 
+            || strstr(stored_process_info.name, client_msg_cmd.name)) {
+            count++;
+        }
+    }
+
+    if (bytes < 0) {
+        error_logger("[req_stats_time] read pid files", getpid());
+    }
+
+    close(fd_client);
+
+    fd_client = open(request.name, O_WRONLY);
+    if (fd_client < 0) {
+        error_logger("[req_stats_time] 2º open client fifo ", getpid());
+        return -1;
+    }
+
+    Server_Message_Count server_msg;
+    server_msg.count = count;
+    write(fd_client, &server_msg, sizeof(Server_Message_Count));
+    printf("Count sent.\n");
 
     close(fd_client);
     printf("FD closed.\n");
@@ -365,6 +431,8 @@ int main (int argc, char const *argv[]) {
                     req_status(request, path_storage);
                 } else if (request.type == STATS_TIME) {
                     req_stats_time(request, pids_folder);
+                } else if (request.type == STATS_COMMAND) {
+                    req_stats_command(request, pids_folder);
                 }
 
                 _exit(0);
