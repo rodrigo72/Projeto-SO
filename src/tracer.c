@@ -44,83 +44,76 @@ long timeval_diff(struct timeval *start, struct timeval *end) {
 
 int main (int argc, char const *argv[]) {
 
-    int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
-    if (fd_server < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
-    }
-
-    printf("Connected to server.\n\n");
-
     if (argc >= 4) {
         if (!strcmp(argv[1], "execute") && !strcmp(argv[2], "-u")) {
 
             int pid = getpid();
             char *command = strdup(argv[3]);
-            char *token = strtok(command, " ");
+            char *token = strtok(command, " "); // command name
 
             if (!token) return 0;
 
             char pipe_name[30];
             snprintf(pipe_name, 30, "../tmp/%d", pid);
 
-            // cria um named pipe para comunicação desimpedida com o servidor
-            if (mkfifo(pipe_name, 0664) < 0) {
-                perror("mkfifo");
+            int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
+            if (fd_server < 0) {
+                perror("[Main] read server fifo");
                 exit(EXIT_FAILURE);
             }
 
-            printf("FIFO pipe created.\n");
+            printf("Connected to server.\n");
 
-            // criação de uma request do tipo "newfifo", ou seja
-            // o server depois de receber a request irá "ouvir"
-            // por uma estrutura client_info
+            if (mkfifo(pipe_name, 0664) < 0) {
+                perror("[Main] mkfifo");
+                exit(EXIT_FAILURE);
+            }
+
             Request request;
-            request.pid = pid;
-            request.type = EXECUTE;
+            request.pid = getpid();
             strcpy(request.name, pipe_name);
+            request.type = EXECUTE;
 
-            write(fd_server, &request, sizeof(Request)); // request for new pipe
-            close(fd_server);
-
+            write(fd_server, &request, sizeof(Request));
             printf("Request sent.\n");
+
+            close(fd_server);
+            printf("Main connection closed.\n");
 
             int fd_client = open(pipe_name, O_WRONLY);
             if (fd_client < 0) {
-                perror("open");
+                perror("open client fifo");
                 exit(EXIT_FAILURE);
             }
 
-            printf("Private connection established.\n");
-            
-            Client_Info client_info_1;
-            client_info_1.pid = pid;
-            strcpy(client_info_1.name, token);
-            client_info_1.type = FIRST;
-            gettimeofday(&client_info_1.time_stamp, NULL);
+            Client_Message client_message_1;
+            client_message_1.pid = pid;
+            strcpy(client_message_1.name, token);
+            client_message_1.type = FIRST;
+            gettimeofday(&client_message_1.time_stamp, NULL);
 
-            write(fd_client, &client_info_1, sizeof(struct client_info));
+            write(fd_client, &client_message_1, sizeof(Client_Message));
+            printf("Info sent.\n");
 
-            printf("Data sent.\n\n");
+            Client_Message client_message_2;
+            client_message_2.pid = pid;
+            strcpy(client_message_2.name, token);
+            client_message_2.type = LAST;
 
-            Client_Info client_info_2;
-            client_info_2.pid = pid;
-            strcpy(client_info_2.name, token);
-            client_info_2.type = LAST;
-
-            // função é excutada com o my_system() e de seguida é enviado
-            // mais uma vez uma estrutura client_info do tipo "info_last" com o novo time_stamp
+            printf("\n-------------------------------------\n");
             printf("Running PID %d\n", pid);
             my_system(argv[3]);
-            gettimeofday(&client_info_2.time_stamp, NULL);
+            gettimeofday(&client_message_2.time_stamp, NULL);
 
             printf("Ended in %ld milliseconds\n", 
-                timeval_diff(&client_info_1.time_stamp, &client_info_2.time_stamp));
+                timeval_diff(&client_message_1.time_stamp, &client_message_2.time_stamp));
+            printf("\n-------------------------------------\n");
                 
-            write(fd_client, &client_info_2, sizeof(Client_Info));
+            write(fd_client, &client_message_2, sizeof(Client_Message));
+            printf("Info sent.\n");
             close(fd_client);
+            printf("Private FD closed\n");
 
-            // o pipe passa a ser desnecessário e o programa para de executar
             int status = unlink(pipe_name);
             if (status != 0) {
                 perror("unlink");
@@ -129,59 +122,51 @@ int main (int argc, char const *argv[]) {
 
             printf("FIFO removed.\n");
             free(command);
-        } 
+        }
     } else if (argc >= 2) {
         if (!strcmp(argv[1], "status")) {
 
-            int pid = getpid();
             char pipe_name[30];
-            snprintf(pipe_name, 30, "../tmp/%d", pid);
+            snprintf(pipe_name, 30, "../tmp/%d", getpid());
 
-            if (mkfifo(pipe_name, 0664) < 0) {
-                perror("mkfifo");
+            int fd_server = open(SERVER_FIFO_PATH, O_WRONLY);
+            if (fd_server < 0) {
+                perror("[Main] read server fifo");
                 exit(EXIT_FAILURE);
             }
 
-            printf("FIFO pipe created.\n");
+            printf("Connected to server.\n");
+
+            if (mkfifo(pipe_name, 0664) < 0) {
+                perror("[Main] mkfifo");
+                exit(EXIT_FAILURE);
+            }
 
             Request request;
-            request.pid = pid;
-            request.type = STATUS;
+            request.pid = getpid();
             strcpy(request.name, pipe_name);
+            request.type = STATUS;
 
-            write(fd_server, &request, sizeof(Request)); // request for new pipe
-            close(fd_server);
-
+            write(fd_server, &request, sizeof(Request));
             printf("Request sent.\n");
+
+            close(fd_server);
+            printf("Main connection closed.\n");
 
             int fd_client = open(pipe_name, O_RDONLY);
             if (fd_client < 0) {
-                perror("open");
+                perror("open client fifo");
                 exit(EXIT_FAILURE);
             }
 
-            // O cliente fica a ouvir por mensagens do servidor (server_message)
-            // com dados acerca do processos em execução
-            // O servidor envia uma mensagem com pid = -1 para indicar que pode parar de ouvir
-            int flag = 1;
-            while (flag) {
-
-                Server_Message server_msg;
-                int bytes = read(fd_client, &server_msg, sizeof(Server_Message));
-                if (bytes == -1) {
-                    perror("read");
-                    exit(EXIT_FAILURE);
-                }
-
-                if (server_msg.type == LISTEN) {
-                    printf("%d %s %ld ms\n", server_msg.pid, server_msg.name, server_msg.time);
-                } else if (server_msg.type == STOP) {
-                    printf("Exiting.\n");
-                    flag = 0;
-                }
-
+            printf("Receiving data...\n");
+            int bytes = 0;
+            Server_Message server_msg;
+            while ((bytes = read(fd_client, &server_msg, sizeof(Server_Message))) > 0) {
+                printf("%d %s %ld ms\n", server_msg.pid, server_msg.name, server_msg.time);
             }
-
+            
+            if (bytes < 0) perror("read server messages");
             close(fd_client);
 
             int status = unlink(pipe_name);
@@ -189,8 +174,7 @@ int main (int argc, char const *argv[]) {
                 perror("unlink");
                 exit(EXIT_FAILURE);
             }
-
-            printf("FIFO removed.\n");
+            printf("\nFIFO removed.\n");
         }
     }
 
