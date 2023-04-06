@@ -40,6 +40,21 @@ Node *ht_new_node (char name[]) {
     return node;
 }
 
+void free_hash_table (Hash_Table table) {
+    Node *node, *temp;
+    int i;
+    for (i = 0; i < SIZE_HASH_TABLE; i++) {
+        node = table[i];
+        while (node != NULL) {
+            temp = node;
+            node = node->next;
+            free(temp->key);
+            free(temp);
+        }
+        table[i] = NULL;
+    }
+}
+
 void ht_add (char *name, Hash_Table ht) {
     unsigned hashed = hash(name) % SIZE_HASH_TABLE;
     Node *ptr, *prev = NULL;
@@ -524,6 +539,8 @@ int req_stats_uniq (Request request, const char pids_folder[]) {
             write(fd_client, &server_msg, sizeof(Server_Message_Command));
         }
     }
+
+    free_hash_table(ht);
 
     close(fd_client);
     printf("FD closed.\n");
