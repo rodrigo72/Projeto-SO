@@ -28,10 +28,10 @@ Foram criadas funções de escrita de logs para errors e para requests.
 ### Funcionalidades avançadas (6 valores)
 - [x] tracer execute -p (execução encadeada de programas)
 - [x] Armazenamento de informação sobre programas terminados
-- [ ] Consulta de programas terminados:
+- [x] Consulta de programas terminados:
     - [x] tracer stats-time
     - [x] tracer stats-command
-    - [ ] tracer stats-uniq
+    - [x] tracer stats-uniq
 
 ## Informações
 

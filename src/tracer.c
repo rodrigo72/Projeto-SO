@@ -365,6 +365,41 @@ int main (int argc, char const *argv[]) {
 
         close(fd_client);
 
+    } else if (argc >= 3 && !strcmp(argv[1], "stats-uniq")) {
+
+        send_request(fd_server, pid, pipe_name, STATS_UNIQ);
+        close(fd_server);
+        printf("Main connection closed.\n");
+
+        int fd_client = open(pipe_name, O_WRONLY);
+        if (fd_client < 0) {
+            perror("open client fifo");
+            exit(EXIT_FAILURE);
+        }
+
+        for (int i = 2; i < argc; i++) {
+            Client_Message_PID client_msg;
+            client_msg.pid = atoi(argv[i]);
+            write(fd_client, &client_msg, sizeof(Client_Message_PID));
+            printf("Message sent.\n");
+        }
+
+        close(fd_client);
+
+        fd_client = open(pipe_name, O_RDONLY);
+        if (fd_client < 0) {
+            perror("open client fifo");
+            exit(EXIT_FAILURE);
+        }
+
+        int bytes = 0;
+        Server_Message_Command server_msg;
+        while ((bytes = read(fd_client, &server_msg, sizeof(Server_Message_Command))) > 0) {
+            printf("%s\n", server_msg.name);
+        }
+
+        if (bytes < 0) perror("read");
+        close(fd_client);
     }
 
     int status = unlink(pipe_name);

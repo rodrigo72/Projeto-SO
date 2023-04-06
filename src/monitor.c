@@ -4,10 +4,73 @@
 #include <errno.h>
 
 #define MAX_MEM 100
+#define SIZE_HASH_TABLE 100
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
 #define ERROR_LOGS_PATH "../logs/errLogs.txt"
 #define REQUEST_LOGS_PATH "../logs/reqLogs.txt"
 #define ACTIVE_PROCESSES_STORAGE "activeProcesses"
+
+typedef struct _node {
+    char *key; int ocorr;
+    struct _node *next;
+} Node, *Hash_Table [SIZE_HASH_TABLE];
+
+unsigned hash (char *str) {
+    unsigned hash = 5381;
+    int c;
+
+    while ((c = *str++)) hash = ((hash << 5) + hash) + c;
+    return hash;
+}
+
+void initEmpty (Hash_Table ht) {
+    for (int i = 0; i < SIZE_HASH_TABLE; i++) {
+        ht[i] = NULL;
+    }
+}
+
+Node *ht_new_node (char name[]) {
+    if (name == NULL) return NULL;
+
+    Node *node = (Node *) malloc(sizeof(Node));
+    node->key = strdup(name);
+    node->ocorr = 1;
+    node->next = NULL;
+
+    return node;
+}
+
+void ht_add (char *name, Hash_Table ht) {
+    unsigned hashed = hash(name) % SIZE_HASH_TABLE;
+    Node *ptr, *prev = NULL;
+
+    for (ptr = ht[hashed]; ptr != NULL; ptr = ptr->next) {
+        if (!strcmp(name, ptr->key)) {
+            ptr->ocorr++;
+            return;
+        }
+        prev = ptr;
+    }
+
+    Node *new = ht_new_node(name);
+    if (prev != NULL) {
+        prev->next = new;
+    } else {
+        ht[hashed] = new;
+    }
+}
+
+void remove_spaces(char* str) {
+    int i = 0, j = 0;
+    while (str[i]) {
+        if (str[i] != ' ') {
+            str[j] = str[i];
+            j++;
+        }
+        i++;
+    }
+    str[j] = '\0';
+}
 
 // error logs são escritos para um ficheiro errLogs
 void error_logger (const char str[], int pid) {
@@ -59,6 +122,9 @@ void request_logger (Request_Types type, int pid) {
             break;
         case STATS_COMMAND:
             sprintf(buffer, "%d\t%s\tSTATS_COMMAND\n", pid, str_time);
+            break;
+        case STATS_UNIQ:
+            sprintf(buffer, "%d\t%s\tSTATS_UNIQ\n", pid, str_time);
             break;
         default:
             break;
@@ -390,6 +456,80 @@ int req_stats_command (Request request, const char pids_folder[]) {
     return 0;
 }
 
+int req_stats_uniq (Request request, const char pids_folder[]) {
+
+    Hash_Table ht;
+    initEmpty(ht);
+
+    printf("Waiting ...\n");
+    int fd_client = open(request.name, O_RDONLY);
+    if (fd_client < 0) {
+        error_logger("[req_stats_time] 1º open client fifo", getpid());
+        return -1;
+    }
+
+    int  bytes = 0;
+    Client_Message_PID client_msg_pid;
+    while ((bytes = read(fd_client, &client_msg_pid, sizeof(Client_Message_PID))) > 0) {
+
+        char path_pid[50];
+        sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
+
+        printf("[%s]\n", path_pid);
+
+        int fd_pid = open(path_pid, O_RDONLY);
+        if (fd_pid < 0) {
+            error_logger("[req_stats_time] open fd_pid", getpid());
+            continue;
+        }
+
+        Stored_Process_Info stored_process_info;
+        int bytes = read(fd_pid, &stored_process_info, sizeof(Stored_Process_Info));
+        if (bytes < 0) {
+            error_logger("[req_stats_time] read stored process info", getpid());
+            continue;
+        }
+
+        char *aux = strdup(stored_process_info.name);
+        while (aux != NULL) {
+            char *cmd = strsep(&aux, "|");
+            int len = strlen(cmd);
+            if (cmd == NULL || len == 0) {
+                break;
+            }
+            remove_spaces(cmd);
+            ht_add(cmd, ht);
+        }
+
+        free(aux);
+        close(fd_pid);
+    }
+
+    if (bytes < 0) {
+        error_logger("[req_stats_time] read pid files", getpid());
+    }
+
+    close(fd_client);
+
+    fd_client = open(request.name, O_WRONLY);
+    if (fd_client < 0) {
+        error_logger("[req_stats_time] 2º open client fifo ", getpid());
+        return -1;
+    }
+
+    for (int i = 0; i < SIZE_HASH_TABLE; i++) {
+        for (Node *ptr = ht[i]; ptr != NULL; ptr = ptr->next) {
+            Server_Message_Command server_msg;
+            strncpy(server_msg.name, ptr->key, sizeof(server_msg.name));
+            write(fd_client, &server_msg, sizeof(Server_Message_Command));
+        }
+    }
+
+    close(fd_client);
+    printf("FD closed.\n");
+    return 0;
+}
+
 int main (int argc, char const *argv[]) {
 
     if (argc < 2) return 0;
@@ -433,6 +573,8 @@ int main (int argc, char const *argv[]) {
                     req_stats_time(request, pids_folder);
                 } else if (request.type == STATS_COMMAND) {
                     req_stats_command(request, pids_folder);
+                } else if (request.type == STATS_UNIQ) {
+                    req_stats_uniq(request, pids_folder);
                 }
 
                 _exit(0);
