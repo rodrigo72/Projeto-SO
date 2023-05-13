@@ -6,7 +6,19 @@
 #define SERVER_FIFO_PATH "../tmp/server_fifo"
 
 // calcula a diferença em milisegundos de duas estruturas timeval
-long timeval_diff(struct timeval *start, struct timeval *end) {
+long timeval_diff (struct timeval *start, struct timeval *end) {  
+    if (end->tv_usec < start->tv_usec) {
+        int nsec = (start->tv_usec - end->tv_usec) / 1000000 + 1;  
+        start->tv_usec -= 1000000 * nsec;  
+        start->tv_sec += nsec;  
+    }
+
+    if (end->tv_usec - start->tv_usec > 1000000) {  
+        int nsec = (start->tv_usec - end->tv_usec) / 1000000;  
+        start->tv_usec += 1000000 * nsec;  
+        start->tv_sec -= nsec;  
+    }    
+
     long msec = (end->tv_sec - start->tv_sec) * 1000;
     msec += (end->tv_usec - start->tv_usec) / 1000;
     return msec;
@@ -19,7 +31,6 @@ void send_request (int fd_server, int pid, const char name[], Request_Types type
     request.type = type;
 
     write(fd_server, &request, sizeof(Request));
-    printf("Request sent.\n");
 }
 
 Client_Message create_client_msg (int pid, const char name[], Client_Info_Types type) {
@@ -142,7 +153,7 @@ long execute_chained_programs (int fd, char names[], const char *pipeline) {
         int status;
         wait(&status);
         if (!WIFEXITED(status)) {
-            printf("Error.\n");
+            perror("Error.\n");
         }
     }
 
@@ -177,13 +188,13 @@ long my_system (int fd, char name[], const char *string) {
     int fres = fork();
     if (fres == 0) {
         int res = execvp(sep[0], sep);
-        printf("Did not execute command (%d).\n", res);
+        perror("Did not execute command");
         _exit(EXIT_FAILURE);
     } else {
         int status;
         waitpid(fres, &status, 0);
         if (!WIFEXITED(status)) {
-            printf("Error.\n");
+            perror("Error.\n");
         }
     }
 
@@ -204,8 +215,6 @@ int main (int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("Connected to server.\n");
-
     int pid = getpid();
     char pipe_name[30];
     snprintf(pipe_name, 30, "../tmp/%d", pid);
@@ -223,7 +232,6 @@ int main (int argc, char const *argv[]) {
 
         send_request(fd_server, pid, pipe_name, EXECUTE);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_WRONLY);
         if (fd_client < 0) {
@@ -238,8 +246,6 @@ int main (int argc, char const *argv[]) {
         printf("-------------------------------------\n\n");
                 
         close(fd_client);
-        printf("Private FD closed.\n");
-
         free(command);
 
     } else if (argc >= 4 && !strcmp(argv[1], "execute") && !strcmp(argv[2], "-p")) {
@@ -249,7 +255,6 @@ int main (int argc, char const *argv[]) {
 
         send_request(fd_server, pid, pipe_name, EXECUTE);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_WRONLY);
         if (fd_client < 0) {
@@ -264,13 +269,11 @@ int main (int argc, char const *argv[]) {
         printf("-------------------------------------\n\n");
                 
         close(fd_client);
-        printf("Private FD closed\n");
 
     } else if (argc >= 2 && !strcmp(argv[1], "status")) {
 
         send_request(fd_server, pid, pipe_name, STATUS);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_RDONLY);
         if (fd_client < 0) {
@@ -278,7 +281,6 @@ int main (int argc, char const *argv[]) {
             exit(EXIT_FAILURE);
         }
 
-        printf("Receiving data...\n");
         int bytes = 0;
         Server_Message server_msg;
         while ((bytes = read(fd_client, &server_msg, sizeof(Server_Message))) > 0) {
@@ -292,7 +294,6 @@ int main (int argc, char const *argv[]) {
 
         send_request(fd_server, pid, pipe_name, STATS_TIME);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_WRONLY);
         if (fd_client < 0) {
@@ -304,7 +305,6 @@ int main (int argc, char const *argv[]) {
             Client_Message_PID client_msg;
             client_msg.pid = atoi(argv[i]);
             write(fd_client, &client_msg, sizeof(Client_Message_PID));
-            printf("Message sent.\n");
         }
 
         close(fd_client);
@@ -328,7 +328,6 @@ int main (int argc, char const *argv[]) {
     } else if (argc >= 4 && !strcmp(argv[1], "stats-command")) {
         send_request(fd_server, pid, pipe_name, STATS_COMMAND);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_WRONLY);
         if (fd_client < 0) {
@@ -339,13 +338,11 @@ int main (int argc, char const *argv[]) {
         Client_Message_Command client_msg_cmd;
         strcpy(client_msg_cmd.name, argv[2]);
         write(fd_client, &client_msg_cmd, sizeof(Client_Message_Command));
-        printf("Message sent.\n");
 
         for (int i = 3; i < argc; i++) {
             Client_Message_PID client_msg;
             client_msg.pid = atoi(argv[i]);
             write(fd_client, &client_msg, sizeof(Client_Message_PID));
-            printf("Message sent.\n");
         }
 
         close(fd_client);
@@ -369,7 +366,6 @@ int main (int argc, char const *argv[]) {
 
         send_request(fd_server, pid, pipe_name, STATS_UNIQ);
         close(fd_server);
-        printf("Main connection closed.\n");
 
         int fd_client = open(pipe_name, O_WRONLY);
         if (fd_client < 0) {
@@ -381,7 +377,6 @@ int main (int argc, char const *argv[]) {
             Client_Message_PID client_msg;
             client_msg.pid = atoi(argv[i]);
             write(fd_client, &client_msg, sizeof(Client_Message_PID));
-            printf("Message sent.\n");
         }
 
         close(fd_client);
@@ -407,7 +402,6 @@ int main (int argc, char const *argv[]) {
         perror("unlink");
         exit(EXIT_FAILURE);
     }
-    printf("FIFO removed.\n");
 
     return 0;
 }

@@ -163,7 +163,26 @@ void no_zombies() {
     sigaction(SIGCHLD, &sa, NULL);
 }
 
-long timeval_diff(struct timeval *start, struct timeval *end) {
+//long timeval_diff(struct timeval *start, struct timeval *end) {
+//    long msec = (end->tv_sec - start->tv_sec) * 1000;
+//    msec += (end->tv_usec - start->tv_usec) / 1000;
+//    return msec;
+//}
+
+// https://stackoverflow.com/questions/15846762/timeval-subtract-explanation
+long timeval_diff (struct timeval *start, struct timeval *end) {  
+    if (end->tv_usec < start->tv_usec) {
+        int nsec = (start->tv_usec - end->tv_usec) / 1000000 + 1;  
+        start->tv_usec -= 1000000 * nsec;  
+        start->tv_sec += nsec;  
+    }
+
+    if (end->tv_usec - start->tv_usec > 1000000) {  
+        int nsec = (start->tv_usec - end->tv_usec) / 1000000;  
+        start->tv_usec += 1000000 * nsec;  
+        start->tv_sec -= nsec;  
+    }    
+
     long msec = (end->tv_sec - start->tv_sec) * 1000;
     msec += (end->tv_usec - start->tv_usec) / 1000;
     return msec;
@@ -193,7 +212,6 @@ int store_active_process (const char path[], Client_Message client_message) {
         if (message.status == 0) {
             lseek(fd, - sizeof(Stored_Client_Message), SEEK_CUR);
             write(fd, &new_message, sizeof(Stored_Client_Message));
-            printf("Added to storage (op1).\n");
             found_empty_slot = 1;
         }
     }
@@ -203,7 +221,6 @@ int store_active_process (const char path[], Client_Message client_message) {
     if (!found_empty_slot) {
         lseek(fd, 0, SEEK_END);
         write(fd, &new_message, sizeof(Stored_Client_Message));
-        printf("Added to storage (op2).\n");
     }
 
     int num_messages = 0;
@@ -233,7 +250,6 @@ int new_process_file (const char path[], Stored_Client_Message message_1, Client
         return -1;
     }
 
-    printf("New process file created.\n");
     return 0;
 }
 
@@ -254,7 +270,6 @@ int update_storage (const char path_storage[], const char path_folder_pid[], Cli
             message.status = 0;
             write(fd, &message, sizeof(Stored_Client_Message));
             new_process_file(path_folder_pid, message, new_message);
-            printf("Storage updated.\n");
             found_pid = 1;
         }
     }
@@ -270,7 +285,6 @@ int update_storage (const char path_storage[], const char path_folder_pid[], Cli
 // Chama a função update_storage na segunda mensagem
 int req_execute (Request request, const char path_storage[], const char pids_folder[]) {
 
-    printf("Waiting for writer...\n");
     int fd_client = open(request.name, O_RDONLY);
     if (fd_client < 0) {
         error_logger("[req_execute] open client fifo", getpid());
@@ -280,7 +294,6 @@ int req_execute (Request request, const char path_storage[], const char pids_fol
     int bytes = 0;
     Client_Message client_message;
     while ((bytes = read(fd_client, &client_message, sizeof(Client_Message))) > 0) {
-        printf("Client message read.\n");
         
         char path_folder[50];
         sprintf(path_folder, "../%s/%d" , pids_folder, client_message.pid);
@@ -293,7 +306,6 @@ int req_execute (Request request, const char path_storage[], const char pids_fol
     }
 
     close(fd_client);
-    printf("Closed client FD.\n");
 
     if (bytes < 0) {
         error_logger("[req_execute] read client message", getpid());
@@ -306,21 +318,18 @@ int req_execute (Request request, const char path_storage[], const char pids_fol
 // Manda mensagens ao cliente com informação acerca dos processos ativos do momento
 // Lé o ficheiro que guarda informação de processos ativos: activeProcesses
 int req_status (Request request, const char path_storage[]) {
-    printf("Opening storage.\n");
     int fd_storage = open(path_storage, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
     if (fd_storage < 0) {
         error_logger("[req_status] open storage", getpid());
         return -1;
     } 
 
-    printf("Waiting for reader ...\n");
     int fd_client = open(request.name, O_WRONLY);
     if (fd_client < 0) {
         error_logger("[req_status] open client fifo", getpid());
         return -1;
     }
 
-    printf("Sending messages.\n");
     int bytes = 0;
     Stored_Client_Message client_message;
     while ((bytes = read(fd_storage, &client_message, sizeof(Stored_Client_Message))) > 0) {
@@ -338,8 +347,6 @@ int req_status (Request request, const char path_storage[]) {
     close(fd_storage);
     close(fd_client);
 
-    printf("Closed client FD.\n");
-
     if (bytes < 0) {
         error_logger("[req_status] read active process storage", getpid());
         return -1;
@@ -350,7 +357,6 @@ int req_status (Request request, const char path_storage[]) {
 
 int req_stats_time (Request request, const char pids_folder[]) {
     
-    printf("Waiting ...\n");
     int fd_client = open(request.name, O_RDONLY);
     if (fd_client < 0) {
         error_logger("[req_stats_time] 1º open client fifo", getpid());
@@ -364,8 +370,6 @@ int req_stats_time (Request request, const char pids_folder[]) {
 
         char path_pid[50];
         sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
-
-        printf("[%s]\n", path_pid);
 
         int fd_pid = open(path_pid, O_RDONLY);
         if (fd_pid < 0) {
@@ -399,15 +403,12 @@ int req_stats_time (Request request, const char pids_folder[]) {
     Server_Message_Total_Time server_msg;
     server_msg.total_time = total;
     write(fd_client, &server_msg, sizeof(Server_Message_Total_Time));
-    printf("Total time sent.\n");
 
     close(fd_client);
-    printf("FD closed.\n");
     return 0;
 }
 
 int req_stats_command (Request request, const char pids_folder[]) {
-    printf("Waiting ...\n");
     int fd_client = open(request.name, O_RDONLY);
     if (fd_client < 0) {
         error_logger("[req_stats_time] 1º open client fifo", getpid());
@@ -427,8 +428,6 @@ int req_stats_command (Request request, const char pids_folder[]) {
     while ((bytes = read(fd_client, &client_msg_pid, sizeof(Client_Message_PID))) > 0) {
         char path_pid[50];
         sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
-
-        printf("[%s]\n", path_pid);
 
         int fd_pid = open(path_pid, O_RDONLY);
         if (fd_pid < 0) {
@@ -464,10 +463,8 @@ int req_stats_command (Request request, const char pids_folder[]) {
     Server_Message_Count server_msg;
     server_msg.count = count;
     write(fd_client, &server_msg, sizeof(Server_Message_Count));
-    printf("Count sent.\n");
 
     close(fd_client);
-    printf("FD closed.\n");
     return 0;
 }
 
@@ -476,7 +473,6 @@ int req_stats_uniq (Request request, const char pids_folder[]) {
     Hash_Table ht;
     initEmpty(ht);
 
-    printf("Waiting ...\n");
     int fd_client = open(request.name, O_RDONLY);
     if (fd_client < 0) {
         error_logger("[req_stats_time] 1º open client fifo", getpid());
@@ -489,8 +485,6 @@ int req_stats_uniq (Request request, const char pids_folder[]) {
 
         char path_pid[50];
         sprintf(path_pid, "../%s/%d" , pids_folder, client_msg_pid.pid);
-
-        printf("[%s]\n", path_pid);
 
         int fd_pid = open(path_pid, O_RDONLY);
         if (fd_pid < 0) {
@@ -543,7 +537,6 @@ int req_stats_uniq (Request request, const char pids_folder[]) {
     free_hash_table(ht);
 
     close(fd_client);
-    printf("FD closed.\n");
     return 0;
 }
 
@@ -555,18 +548,13 @@ int main (int argc, char const *argv[]) {
     char path_storage[50];
     sprintf(path_storage, "../%s/%s", pids_folder, ACTIVE_PROCESSES_STORAGE);
 
-    printf("Server on.\n");
-
     if (mkfifo(SERVER_FIFO_PATH, 0644) < 0) {
         error_logger("[main] mkfifo", getpid());
         exit(EXIT_FAILURE);
     }
 
-    printf("Server FIFO created.\n");
-
     no_zombies();
     while (1) {
-        printf("Waiting for clients ...\n");
         int fd_server = open(SERVER_FIFO_PATH, O_RDONLY);
         if (fd_server < 0) {
             error_logger("[main] open server fifo", getpid());
@@ -580,7 +568,6 @@ int main (int argc, char const *argv[]) {
             int res = fork();
             if (res == 0) {
                 request_logger(request.type, getpid());
-                printf("Request received.\n");
 
                 if (request.type == EXECUTE) {
                     req_execute(request, path_storage, pids_folder);
@@ -603,7 +590,6 @@ int main (int argc, char const *argv[]) {
         }
 
         close(fd_server);
-        printf("\n");
     }
 
     int status = unlink(SERVER_FIFO_PATH);
@@ -612,6 +598,5 @@ int main (int argc, char const *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    printf("SERVER FIFO TERMINATED.\n"); 
     free(pids_folder);   
 }
